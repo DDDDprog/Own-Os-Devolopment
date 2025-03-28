@@ -1,57 +1,59 @@
-# Toolchain
-AS = nasm
-CC = gcc
-LD = ld
-GRUB_MKRESCUE = grub-mkrescue
+ARCH := x86
+CROSS_COMPILE :=
+CC := $(CROSS_COMPILE)gcc
+AS := nasm
+LD := $(CROSS_COMPILE)ld
 
-# Flags
-ASFLAGS = -f elf32
-CFLAGS = -m32 -nostdlib -nostdinc -fno-builtin -fno-stack-protector -nostartfiles -nodefaultlibs -Wall -Wextra -Iinclude -ffreestanding -c
-LDFLAGS = -m elf_i386 -T linker.ld -z noexecstack
+CFLAGS := -m32 -std=gnu99 -ffreestanding -Wall -Wextra -Iinclude
+ASFLAGS := -f elf32
+LDFLAGS := -m elf_i386 -nostdlib -T linker.ld -z noexecstack
 
-# Directories
-SRCDIR = .
-BUILDDIR = build
-ISODIR = iso
-BOOTDIR = $(ISODIR)/boot
-GRUBDIR = $(BOOTDIR)/grub
+KERNEL := myos.elf
+ISO := myos.iso
 
-# Files
-KERNEL = myos.elf
-ISO = myos.iso
-GRUB_CFG = grub.cfg
+SRCDIR := .
+OBJDIR := build
+ISODIR := iso
+BOOTDIR := $(ISODIR)/boot
+GRUBDIR := $(BOOTDIR)/grub
 
-# Objects
-OBJS = $(BUILDDIR)/multiboot.o $(BUILDDIR)/boot.o $(BUILDDIR)/kernel.o $(BUILDDIR)/kernel_entry.o
+ARCHDIR := arch/$(ARCH)
+KERNELDIR := kernel
 
-all: $(ISO)
+SOURCES := \
+    $(ARCHDIR)/boot/multiboot.asm \
+    $(ARCHDIR)/boot/boot.asm \
+    $(ARCHDIR)/kernel/entry.asm \
+    $(KERNELDIR)/main.c \
+    $(KERNELDIR)/vga.c
 
-$(ISO): $(KERNEL) $(GRUB_CFG)
+OBJECTS := $(patsubst %,$(OBJDIR)/%.o,$(basename $(SOURCES)))
+
+.PHONY: all clean run iso
+
+all: $(KERNEL)
+
+iso: $(ISO)
+
+$(ISO): $(KERNEL) scripts/grub.cfg
 	mkdir -p $(GRUBDIR)
 	cp $(KERNEL) $(BOOTDIR)
-	cp $(GRUB_CFG) $(GRUBDIR)
-	$(GRUB_MKRESCUE) -o $(ISO) $(ISODIR)
+	cp scripts/grub.cfg $(GRUBDIR)
+	grub-mkrescue -o $(ISO) $(ISODIR)
 
-$(KERNEL): $(OBJS)
-	$(LD) $(LDFLAGS) -o $(KERNEL) $(OBJS)
+$(KERNEL): $(OBJECTS)
+	$(LD) $(LDFLAGS) -o $@ $^
 
-$(BUILDDIR)/multiboot.o: boot/multiboot.asm
-	mkdir -p $(BUILDDIR)
-	$(AS) -f elf32 $< -o $@
+$(OBJDIR)/%.o: %.asm
+	mkdir -p $(dir $@)
+	$(AS) $(ASFLAGS) -o $@ $<
 
-$(BUILDDIR)/boot.o: boot/boot.asm
-	$(AS) $(ASFLAGS) $< -o $@
-
-$(BUILDDIR)/kernel.o: kernel/kernel.c
-	$(CC) $(CFLAGS) $< -o $@
-
-$(BUILDDIR)/kernel_entry.o: kernel/kernel.asm
-	$(AS) $(ASFLAGS) $< -o $@
+$(OBJDIR)/%.o: %.c
+	mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
-	rm -rf $(BUILDDIR) $(KERNEL) $(ISO) $(ISODIR)
+	rm -rf $(OBJDIR) $(KERNEL) $(ISO) $(ISODIR)
 
 run: $(ISO)
 	qemu-system-x86_64 -cdrom $(ISO)
-
-.PHONY: all clean run
